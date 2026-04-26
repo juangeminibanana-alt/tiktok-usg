@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Video Pipeline | Mission Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="glow-bg"></div>
+    
+    <header>
+        <div class="logo">
+            <div class="pulse"></div>
+            <h1>Agent<span>Control</span></h1>
+        </div>
+        <div class="session-selector">
+            <input type="text" id="session-id" placeholder="Session ID..." value="dev_session_001">
+            <button id="connect-btn" class="btn-primary">Connect</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="left-col">
+            <!-- New Project Panel -->
+            <section class="control-panel">
+                <h2>New Video Project</h2>
+                <div class="input-group">
+                    <input type="text" id="prompt-input" placeholder="Describe the video you want to create...">
+                    <button id="generate-btn" class="btn-primary">Generate Video</button>
+                </div>
+                
+                <!-- Pipeline Visualizer -->
+                <div class="pipeline-viz" id="pipeline-visualizer">
+                    <div class="step" id="step-planning">
+                        <div class="step-node"></div>
+                        <span>Planning</span>
+                    </div>
+                    <div class="step" id="step-scripting">
+                        <div class="step-node"></div>
+                        <span>Scripting</span>
+                    </div>
+                    <div class="step" id="step-producing">
+                        <div class="step-node"></div>
+                        <span>Producing</span>
+                    </div>
+                    <div class="step" id="step-editing">
+                        <div class="step-node"></div>
+                        <span>Editing</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Agent Status Grid -->
+            <section class="agent-grid">
+                <div class="agent-card" id="orchestrator-status">
+                    <h3>System Coordinator</h3>
+                    <div class="agent-role">Orchestrator</div>
+                    <div class="agent-status"><span class="status-dot"></span> <span class="status-text">Offline</span></div>
+                    <div class="current-task">Idle</div>
+                </div>
+                <div class="agent-card" id="planner-status">
+                    <h3>Creative Director</h3>
+                    <div class="agent-role">Planner</div>
+                    <div class="agent-status"><span class="status-dot"></span> <span class="status-text">Offline</span></div>
+                    <div class="current-task">Idle</div>
+                </div>
+                <div class="agent-card" id="scriptwriter-status">
+                    <h3>Content Writer</h3>
+                    <div class="agent-role">Scriptwriter</div>
+                    <div class="agent-status"><span class="status-dot"></span> <span class="status-text">Offline</span></div>
+                    <div class="current-task">Idle</div>
+                </div>
+                <div class="agent-card" id="producer-status">
+                    <h3>Visual Artist</h3>
+                    <div class="agent-role">Producer</div>
+                    <div class="agent-status"><span class="status-dot"></span> <span class="status-text">Offline</span></div>
+                    <div class="current-task">Idle</div>
+                </div>
+            </section>
+
+            <!-- Gallery/Output (Hidden by default or empty) -->
+            <section id="gallery" class="control-panel" style="display:none;">
+                <h2>Final Output</h2>
+                <div id="output-preview" class="output-preview">
+                    <!-- Video link or preview will appear here -->
+                </div>
+            </section>
+        </div>
+
+        <div class="side-panel">
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h2>Live State Bus</h2>
+                    <div class="badge">Real-time</div>
+                </div>
+                <div id="log-feed" class="log-feed">
+                    <div class="log-item system">Initializing mission control...</div>
+                </div>
+            </div>
+
+            <div class="panel-card full-height">
+                <div class="panel-header">
+                    <h2>Task History</h2>
+                </div>
+                <div id="task-list" class="log-feed">
+                    <!-- Tasks injected here -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
