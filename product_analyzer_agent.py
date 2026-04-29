@@ -10,6 +10,7 @@ Agente 1: Analiza el producto de TikTok Shop.
 import json
 import logging
 import os
+import threading
 from typing import Any
 from agent_base import BaseAgent
 from schemas import AgentRole, Task
@@ -73,8 +74,7 @@ Responde SOLO con el JSON, sin markdown, sin explicaciones.
 
 class ProductAnalyzerAgent(BaseAgent):
     def __init__(self, agent_id: str, session_id: str):
-        super().__init__(agent_id, AgentRole.PLANNER, session_id)
-        # Override role display name
+        super().__init__(agent_id, AgentRole.PRODUCT_ANALYZER, session_id)
         self._role_display = "ProductAnalyzer"
 
     def process_task(self, task: Task) -> Any:
@@ -83,50 +83,72 @@ class ProductAnalyzerAgent(BaseAgent):
 
         url = task.payload.get("url", "")
         manual_data = task.payload.get("manual_data", {})
-        screenshots = task.payload.get("screenshots", [])
 
-        logger.info(f"[ProductAnalyzer] Analyzing product: {url or 'manual data'}")
+        # ── Fast path: use hardcoded spec (default in dev) ────────────────────
+        # Set USE_GEMINI_ANALYSIS=true in .env to enable live Gemini analysis.
+        use_gemini = os.environ.get("USE_GEMINI_ANALYSIS", "false").lower() == "true"
 
-        # Build context for the model
-        context = self._build_context(url, manual_data, screenshots)
-
-        try:
-            raw = self.generate_content(
-                model_name=self.get_model("pro"),  # gemini-3.1-pro-preview
-                prompt=context,
-                system_instruction=SYSTEM_INSTRUCTION
-            )
-
-            # Clean and parse JSON
-            cleaned = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-            product_spec = json.loads(cleaned)
-
-            logger.info(f"[ProductAnalyzer] ✅ Product spec extracted: {product_spec.get('name_es', 'unknown')}")
-            return product_spec
-
-        except json.JSONDecodeError as e:
-            logger.error(f"[ProductAnalyzer] JSON parse error: {e}")
-            # Return the hardcoded spec as fallback for known products
+        if not use_gemini:
+            logger.info("[ProductAnalyzer] ⚡ Fast path — usando spec hardcodeado (sin API)")
             return self._fallback_spec(url, manual_data)
 
-        except Exception as e:
-            logger.error(f"[ProductAnalyzer] Error: {e}")
-            raise
+        # ── Gemini path (opt-in) ───────────────────────────────────────────────
+        logger.info(f"[ProductAnalyzer] 🔍 Analizando con Gemini: {url or 'datos manuales'}")
+        context = self._build_context(url, manual_data, [])
+
+        result_holder: list = [None]
+        error_holder:  list = [None]
+        done = threading.Event()
+
+        def _call():
+            try:
+                result_holder[0] = self.generate_content(
+                    self.get_model("flash"), context, SYSTEM_INSTRUCTION
+                )
+            except Exception as exc:
+                error_holder[0] = exc
+            finally:
+                done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+        completed = done.wait(timeout=45)
+
+        if not completed:
+            logger.warning("[ProductAnalyzer] ⏱ Timeout (45s) — usando fallback spec")
+            return self._fallback_spec(url, manual_data)
+
+        if error_holder[0]:
+            logger.error(f"[ProductAnalyzer] Error API: {error_holder[0]} — usando fallback spec")
+            return self._fallback_spec(url, manual_data)
+
+        raw = (result_holder[0] or "").strip()
+        if raw.startswith("```json"):
+            raw = raw[7:]
+        elif raw.startswith("```"):
+            raw = raw[3:]
+        if raw.endswith("```"):
+            raw = raw[:-3]
+        raw = raw.strip()
+
+        try:
+            spec = json.loads(raw)
+            logger.info(f"[ProductAnalyzer] ✅ Spec extraído: {spec.get('name_es', 'unknown')}")
+            return spec
+        except json.JSONDecodeError as e:
+            logger.error(f"[ProductAnalyzer] JSON parse error: {e} — usando fallback spec")
+            return self._fallback_spec(url, manual_data)
+
 
     def _build_context(self, url: str, manual_data: dict, screenshots: list) -> str:
         lines = ["Analiza este producto de TikTok Shop y extrae el ProductSpec:\n"]
-
         if url:
             lines.append(f"URL: {url}")
-
         if manual_data:
             lines.append("\nDatos del producto observados:")
             for k, v in manual_data.items():
                 lines.append(f"  {k}: {v}")
-
         if screenshots:
             lines.append(f"\nSe proporcionaron {len(screenshots)} capturas de pantalla del producto.")
-
         return "\n".join(lines)
 
     def _fallback_spec(self, url: str, manual_data: dict) -> dict:
@@ -150,7 +172,7 @@ class ProductAnalyzerAgent(BaseAgent):
                 "M":   {"chest_cm": 116, "shoulder_cm": 49, "length_cm": 71},
                 "L":   {"chest_cm": 121, "shoulder_cm": 51, "length_cm": 73},
                 "XL":  {"chest_cm": 126, "shoulder_cm": 52, "length_cm": 75},
-                "XXL": {"chest_cm": 130, "shoulder_cm": 54, "length_cm": 77}
+                "XXL": {"chest_cm": 130, "shoulder_cm": 54, "length_cm": 77},
             },
             "material": "Faux suede — ante sintético premium",
             "material_composition": "100% Poliéster de alta densidad",
@@ -164,7 +186,7 @@ class ProductAnalyzerAgent(BaseAgent):
                 "Cremallera completa resistente al uso diario",
                 "Tela gruesa y duradera — no se ve barata",
                 "Corte masculino — favorece complexión robusta",
-                "52% de descuento — precio imbatible en TikTok Shop"
+                "52% de descuento — precio imbatible en TikTok Shop",
             ],
             "hero_image_url": "https://p16-oec-sg.ibyteimg.com/tos-alisg-i-aphluv4xwc-sg/e96600b600fa4e7f9e5ee1e990cb7d76~tplv-aphluv4xwc-resize-png:630:840.png",
             "additional_images": [],
@@ -172,8 +194,8 @@ class ProductAnalyzerAgent(BaseAgent):
             "ugc_hooks": [
                 "Esta chamarra de TikTok Shop tiene todo lo que necesitas",
                 "52% de descuento y nadie lo está hablando",
-                "La chamarra que hace ver a cualquier hombre con estilo"
+                "La chamarra que hace ver a cualquier hombre con estilo",
             ],
             "target_audience": "Hombre mexicano 25-45 años, complexión mediana a robusta, estilo casual premium",
-            "price_anchor_script": "Antes costaba $757, hoy la consigues en $363 — más de la mitad de descuento en TikTok Shop"
+            "price_anchor_script": "Antes costaba $757, hoy la consigues en $363 — más de la mitad de descuento en TikTok Shop",
         }

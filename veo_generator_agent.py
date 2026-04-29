@@ -23,7 +23,8 @@ VEO_MODEL = "veo-3.1-lite-generate-preview"
 
 class VeoGeneratorAgent(BaseAgent):
     def __init__(self, agent_id: str, session_id: str):
-        super().__init__(agent_id, AgentRole.PRODUCER, session_id)
+        super().__init__(agent_id, AgentRole.VEO_GENERATOR, session_id)
+
         self.output_dir = os.path.join("output", "clips")
         os.makedirs(self.output_dir, exist_ok=True)
 

@@ -66,27 +66,26 @@ class CompositorAgent(BaseAgent):
                 final_audio = CompositeAudioClip(audio_layers)
                 final_video = final_video.with_audio(final_audio)
 
-            # 3. Overlays (Precio y CTA)
+            # 3. Overlays Dinámicos por Clip
             overlays = []
-            if product_spec:
-                price = product_spec.get("price_current", "363")
-                price_text = f"${price} MXN — Toca la canastita 🛒"
-                
-                # Texto en blanco con outline negro (regla de TikTok 2026)
-                txt_overlay = (TextClip(
-                    text=price_text,
-                    font_size=50,
-                    color='white',
-                    stroke_color='black',
-                    stroke_width=2,
-                    method='caption',
-                    size=(int(final_video.w * 0.8), None)
-                )
-                .with_duration(final_video.duration - 24) # Aparece al final
-                .with_start(24) 
-                .with_position(('center', 0.7), relative=True))
-                
-                overlays.append(txt_overlay)
+            current_time = 0
+            for i, clip in enumerate(video_clips):
+                shot_text = clips_data[i].get("name", "")
+                if shot_text:
+                    txt = (TextClip(
+                        text=shot_text,
+                        font_size=40,
+                        color='white',
+                        stroke_color='black',
+                        stroke_width=1.5,
+                        method='caption',
+                        size=(int(final_video.w * 0.9), None)
+                    )
+                    .with_duration(clip.duration)
+                    .with_start(current_time)
+                    .with_position(('center', 0.8), relative=True))
+                    overlays.append(txt)
+                current_time += clip.duration
 
             if overlays:
                 final_video = CompositeVideoClip([final_video] + overlays)

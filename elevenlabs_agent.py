@@ -29,7 +29,8 @@ Antes costaba $757... hoy en TikTok Shop la consigues en $363.
 
 class ElevenLabsAgent(BaseAgent):
     def __init__(self, agent_id: str, session_id: str):
-        super().__init__(agent_id, AgentRole.EDITOR, session_id)
+        super().__init__(agent_id, AgentRole.ELEVENLABS, session_id)
+
         self.output_dir = os.path.join("output", "audio")
         os.makedirs(self.output_dir, exist_ok=True)
         self.api_key = os.environ.get("ELEVENLABS_API_KEY", "")

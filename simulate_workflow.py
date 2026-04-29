@@ -1,87 +1,116 @@
 """
-simulate_workflow.py
-─────────────────────
-Runs all four agents in a single process (each in its own daemon thread)
-and fires a START_WORKFLOW trigger to exercise the full pipeline.
+simulate_workflow.py — v2 UGC Fashion Pipeline
+────────────────────────────────────────────────
+Dispara el pipeline completo con la chamarra de ante café de TikTok Shop.
 
-Usage:
+Uso:
     uv run simulate_workflow.py
-    # or
-    python simulate_workflow.py
+    uv run simulate_workflow.py --url https://www.tiktok.com/view/product/1732992473481512755
 """
 
+import argparse
 import logging
 import time
 import uuid
 
-from orchestrator_agent  import OrchestratorAgent
-from planner_agent       import PlannerAgent
-from scriptwriter_agent  import ScriptwriterAgent
-from producer_agent      import ProducerAgent
-from reviewer_agent      import ReviewerAgent
-from editor_agent        import EditorAgent
-from state_bus           import SharedStateBus
-from schemas             import MessageType
+from orchestrator_agent     import OrchestratorAgent
+from product_analyzer_agent import ProductAnalyzerAgent
+from persona_image_agent    import PersonaImageAgent
+from veo_generator_agent    import VeoGeneratorAgent
+from elevenlabs_agent       import ElevenLabsAgent
+from editor_agent           import EditorAgent
+from state_bus              import SharedStateBus
+from schemas                import MessageType
 
-# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s  %(name)-20s  %(levelname)-8s  %(message)s",
+    format="%(asctime)s  %(name)-25s  %(levelname)-8s  %(message)s",
 )
 logger = logging.getLogger("Simulation")
 
-# ── Sample prompt ─────────────────────────────────────────────────────────────
-DEMO_PROMPT = (
-    "Create a 30-second TikTok about the history of artificial intelligence, "
-    "focusing on the shift from symbolic AI to neural networks. "
-    "Use a dark, futuristic aesthetic with epic background music."
-)
+# ── Payload por defecto: chamarra de ante café ────────────────────────────────
+DEFAULT_PAYLOAD = {
+    "url": "https://www.tiktok.com/view/product/1732992473481512755",
+    "manual_data": {
+        "name":           "Chaqueta de ante sintético con cuello y cierre",
+        "price_current":  363.74,
+        "price_original": 757.78,
+        "discount_pct":   52,
+        "colors":         ["caramel", "gray", "black", "olive green"],
+        "sizes":          ["S", "M", "L", "XL", "XXL"],
+        "material":       "Faux suede premium",
+        "seller":         "Value Chic Clothes",
+        "rating":         4.8,
+        "reviews":        205,
+        "sold":           2000,
+    },
+    "character_pack_dir": "character_pack",
+    # "voice_id": "TU_ELEVENLABS_VOICE_ID",  # Descomentar cuando tengas la voz clonada
+}
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-def run_simulation():
-    session_id = f"sim_{uuid.uuid4().hex[:6]}"
+
+def run_simulation(payload: dict = None):
+    if payload is None:
+        payload = DEFAULT_PAYLOAD
+
+    session_id = f"ugc_{uuid.uuid4().hex[:6]}"
     logger.info(f"Session: {session_id}")
-    logger.info(f"Prompt : {DEMO_PROMPT[:80]}…")
+    logger.info(f"Producto: {payload.get('manual_data', {}).get('name', 'desconocido')}")
 
-    # 1 ── Instantiate agents
+    # Instanciar todos los agentes
     agents = [
-        OrchestratorAgent("orchestrator_01", session_id),
-        PlannerAgent     ("planner_01",       session_id),
-        ScriptwriterAgent("scriptwriter_01",  session_id),
-        ProducerAgent    ("producer_01",       session_id),
-        ReviewerAgent    ("reviewer_01",       session_id),
-        EditorAgent      ("editor_01",         session_id),
+        OrchestratorAgent    ("orchestrator_01",    session_id),
+        ProductAnalyzerAgent ("product_analyzer_01", session_id),
+        PersonaImageAgent    ("persona_image_01",    session_id),
+        VeoGeneratorAgent    ("veo_generator_01",    session_id),
+        ElevenLabsAgent      ("elevenlabs_01",       session_id),
+        EditorAgent          ("editor_01",           session_id),
     ]
 
-    # 2 ── Start all agents (each registers a Firebase listener in a daemon thread)
     for agent in agents:
         agent.start()
 
-    logger.info("All agents started — waiting 2 s for Firebase listeners to attach…")
-    time.sleep(2)
+    logger.info("Agentes iniciados — esperando 3s para que Firebase conecte…")
+    time.sleep(3)
 
-    # 3 ── Fire the trigger
-    bus = SharedStateBus(session_id)
+    # Disparar el workflow
+    bus     = SharedStateBus(session_id)
     trigger = bus.create_message(
-        sender="user_proxy",
-        receiver="orchestrator",
-        msg_type=MessageType.START_WORKFLOW,
-        content=DEMO_PROMPT,
+        sender   = "user_proxy",
+        receiver = "orchestrator",
+        msg_type = MessageType.START_WORKFLOW,
+        content  = payload,
     )
     bus.push_message(trigger)
-    logger.info("START_WORKFLOW message sent — pipeline is running.")
+    logger.info("✅ START_WORKFLOW enviado — pipeline corriendo.")
+    logger.info("Monitorea en: dashboard/index.html | Ctrl-C para detener")
 
-    # 4 ── Keep process alive; Ctrl-C to stop
     try:
-        logger.info("Monitoring (Ctrl-C to stop)…")
         while True:
             time.sleep(5)
+            final = next(
+                (a for a in agents if hasattr(a, "workflow_state")),
+                None
+            )
+            if final and final.workflow_state.get("final_output"):
+                output = final.workflow_state["final_output"]
+                logger.info(f"🎬 VIDEO LISTO: {output.get('video_path')}")
+                break
     except KeyboardInterrupt:
-        logger.info("Stopping agents…")
+        pass
+    finally:
         for agent in agents:
             agent.stop()
-        logger.info("Done.")
+        logger.info("Agentes detenidos.")
 
 
 if __name__ == "__main__":
-    run_simulation()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--url", help="URL de TikTok Shop del producto")
+    args = parser.parse_args()
+
+    payload = DEFAULT_PAYLOAD.copy()
+    if args.url:
+        payload["url"] = args.url
+
+    run_simulation(payload)

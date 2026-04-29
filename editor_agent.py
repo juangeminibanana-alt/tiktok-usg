@@ -1,11 +1,13 @@
 """
-editor_agent.py
-───────────────
-Ensambla imágenes generadas en un video MP4 real usando MoviePy.
+editor_agent.py — v2
+─────────────────────
+Ensambla clips de Veo 3.1 Lite + audio de ElevenLabs en un MP4 final.
+Usa MoviePy 2.x para merge de video + audio + captions.
 """
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 from agent_base import BaseAgent
 from schemas import AgentRole, Task
@@ -23,105 +25,95 @@ class EditorAgent(BaseAgent):
         if task.type != "assemble_video":
             raise ValueError(f"Unsupported task type: {task.type}")
 
-        assets = task.payload.get("assets", [])
-        if not assets:
-            raise ValueError("No assets provided to assemble.")
-
-        asset_data = assets[0] if assets else {}
-        scenes = asset_data.get("scenes", []) if isinstance(asset_data, dict) else []
-        title = asset_data.get("title", "AI Video") if isinstance(asset_data, dict) else "AI Video"
+        clips        = task.payload.get("clips", [])
+        voiceover    = task.payload.get("voiceover", {})
+        product_spec = task.payload.get("product_spec", {})
 
         output_filename = f"final_video_{self.session_id}.mp4"
-        output_path = os.path.join(self.output_dir, output_filename)
+        output_path     = os.path.join(self.output_dir, output_filename)
 
-        if scenes and any(s.get("image_path") for s in scenes):
-            logger.info(f"Assembling REAL video from {len(scenes)} scenes...")
-            result_path = self._assemble_with_moviepy(scenes, output_path)
-        else:
-            logger.warning("No valid image paths found — generating placeholder video.")
+        valid_clips = [c for c in clips if c.get("clip_path") and Path(c["clip_path"]).exists()]
+
+        if not valid_clips:
+            logger.warning("[Editor] No hay clips válidos — generando placeholder.")
             result_path = self._generate_placeholder(output_path)
+        else:
+            logger.info(f"[Editor] Ensamblando {len(valid_clips)} clips de Veo...")
+            result_path = self._assemble(valid_clips, voiceover, product_spec, output_path)
 
-        logger.info(f"Video assembled: {result_path}")
         return {
-            "video_path": result_path,
-            "title": title,
-            "status": "Ready for upload",
-            "scene_count": len(scenes)
+            "video_path":  result_path,
+            "title":       product_spec.get("name_es", "UGC Video"),
+            "status":      "Ready for TikTok upload",
+            "clip_count":  len(valid_clips),
+            "has_audio":   bool(voiceover.get("audio_path")),
         }
 
-    def _assemble_with_moviepy(self, scenes: list, output_path: str) -> str:
-        """Stitch scene images into a real MP4 using MoviePy 2.x."""
+    def _assemble(self, clips: list, voiceover: dict, product_spec: dict, output_path: str) -> str:
         try:
-            from moviepy import ImageClip, concatenate_videoclips, TextClip, CompositeVideoClip
+            from moviepy import VideoFileClip, concatenate_videoclips, AudioFileClip, CompositeAudioClip
         except ImportError:
-            logger.error("MoviePy not installed. Run: uv sync")
+            logger.error("[Editor] MoviePy no instalado. Ejecuta: uv sync")
             return self._generate_placeholder(output_path)
 
-        clips = []
-        for scene in scenes:
-            image_path = scene.get("image_path")
-            duration = scene.get("duration_seconds", 5)
-            caption = scene.get("caption", "")
-
-            if not image_path or not os.path.exists(image_path):
-                logger.warning(f"Missing image for scene {scene.get('scene_number')} — skipping.")
-                continue
-
+        video_clips = []
+        for clip_data in clips:
+            clip_path = clip_data["clip_path"]
             try:
-                # MoviePy 2.x: duration in constructor, no set_fps needed
-                clip = ImageClip(image_path, duration=duration)
-
-                # Add caption overlay if available
-                if caption:
-                    try:
-                        txt = (
-                            TextClip(
-                                text=caption,
-                                font_size=40,
-                                color='white',
-                                stroke_color='black',
-                                stroke_width=2,
-                                size=(clip.w, None),
-                                method='caption',
-                                duration=duration,
-                            )
-                            .with_position(('center', 'bottom'))
-                        )
-                        clip = CompositeVideoClip([clip, txt])
-                    except Exception as e:
-                        logger.warning(f"Could not add caption: {e}")
-
-                clips.append(clip)
+                vc = VideoFileClip(clip_path)
+                video_clips.append(vc)
+                logger.info(f"[Editor] Clip cargado: {clip_path} ({vc.duration:.1f}s)")
             except Exception as e:
-                logger.error(f"Error creating clip for scene: {e}")
-                continue
+                logger.warning(f"[Editor] No se pudo cargar {clip_path}: {e}")
 
-        if not clips:
+        if not video_clips:
             return self._generate_placeholder(output_path)
 
-        final = concatenate_videoclips(clips, method="compose")
-        final.write_videofile(output_path, fps=24, codec="libx264", audio=False, logger=None)
+        # Concatenar clips
+        final_video = concatenate_videoclips(video_clips, method="compose")
+        logger.info(f"[Editor] Video concatenado: {final_video.duration:.1f}s total")
+
+        # Agregar audio de ElevenLabs si existe
+        audio_path = voiceover.get("audio_path")
+        if audio_path and Path(audio_path).exists():
+            try:
+                vo_audio = AudioFileClip(audio_path)
+                # Trim o loop para que no pase de la duración del video
+                if vo_audio.duration > final_video.duration:
+                    vo_audio = vo_audio.subclipped(0, final_video.duration)
+                final_video = final_video.with_audio(vo_audio)
+                logger.info(f"[Editor] Audio de ElevenLabs agregado: {audio_path}")
+            except Exception as e:
+                logger.warning(f"[Editor] No se pudo agregar audio: {e}")
+
+        # Exportar
+        final_video.write_videofile(
+            output_path,
+            fps=24,
+            codec="libx264",
+            audio_codec="aac",
+            logger=None,
+        )
+        logger.info(f"[Editor] ✅ Video exportado: {output_path}")
         return output_path
 
     def _generate_placeholder(self, output_path: str) -> str:
-        """Generate a simple placeholder video with a black background."""
         try:
             from moviepy import ColorClip
             clip = ColorClip(size=(1080, 1920), color=[10, 10, 20], duration=5)
             clip.write_videofile(output_path, fps=24, codec="libx264", audio=False, logger=None)
         except Exception as e:
-            logger.error(f"Placeholder generation failed: {e}")
-            # Create empty file as last resort
-            open(output_path, 'w').close()
+            logger.error(f"[Editor] Placeholder fallido: {e}")
+            open(output_path, "w").close()
         return output_path
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     import time
+    logging.basicConfig(level=logging.INFO)
     agent = EditorAgent("editor_01", "dev_session_001")
     agent.start()
-    print("Editor Agent running...")
+    print("EditorAgent v2 corriendo...")
     try:
         while True:
             time.sleep(1)
